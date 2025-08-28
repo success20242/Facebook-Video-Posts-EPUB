@@ -25,7 +25,7 @@ const COVER_PATH = path.join(ASSETS_DIR, "cover.jpg");
 
 // ---------------- HELPERS ----------------
 async function fetchVideoPosts() {
-  const url = `https://graph.facebook.com/v20.0/${PAGE_ID}/posts?since=${SINCE}&until=${UNTIL}&fields=message,created_time,attachments{media,type,url}&access_token=${ACCESS_TOKEN}`;
+  const url = `https://graph.facebook.com/v23.0/106680125079993/posts?fields=message,created_time,attachments{media,type,url}&since=2025-07-07&until=2025-08-28&access_token=PAGE_ACCESS_TOKEN`;
   const response = await axios.get(url);
   const posts = response.data.data;
 
