@@ -1,3 +1,6 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import axios from "axios";
 import fs from "fs";
 import path from "path";
@@ -6,12 +9,12 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import Epub from "epub-gen";
 
 // ---------------- CONFIG ----------------
-const PAGE_ID = "1244048613878999";
-const ACCESS_TOKEN = "EAAOzUEFSpk4BPU6sJOI1YmWu2iKwRKlzG7xhqZCyelZA4iBTwGtRid78ZCgwwb9t6FAz9SkKaeygG96UsvXwMUsXZBFieE6p3LpOadHbUMZAbGHymAqmAPXIQekk32KZAk5XurQh04gyv71pEJJwPv3axFJXMGVmzlQRZAqml3jOIFJ5iJJTpJX4e8xdQjJgTvZBSEe4OfFQ3g3b4MQG9NdmI6ThlIoCSDAZBM4YFGuZBErnmeYaOzC2yQR6Xc9AZDZD";
-const SINCE = "2025-07-07";
-const UNTIL = "2025-08-28";
-const AUTHOR = "Onyekachi C. Ebosi";
-const TITLE = "Facebook Video Posts eBook";
+const PAGE_ID = process.env.PAGE_ID;
+const ACCESS_TOKEN = process.env.ACCESS_TOKEN;
+const SINCE = process.env.SINCE;
+const UNTIL = process.env.UNTIL;
+const AUTHOR = process.env.AUTHOR;
+const TITLE = process.env.TITLE;
 
 // ---------------- FOLDERS ----------------
 const ASSETS_DIR = path.join(process.cwd(), "ebook_assets");
@@ -25,7 +28,7 @@ const COVER_PATH = path.join(ASSETS_DIR, "cover.jpg");
 
 // ---------------- HELPERS ----------------
 async function fetchVideoPosts() {
-  const url = `https://graph.facebook.com/v23.0/106680125079993/posts?fields=message,created_time,attachments{media,type,url}&since=2025-07-07&until=2025-08-28&access_token=PAGE_ACCESS_TOKEN`;
+  const url = `https://graph.facebook.com/v23.0/${PAGE_ID}/posts?fields=message,created_time,attachments{media,type,url}&since=${SINCE}&until=${UNTIL}&access_token=${ACCESS_TOKEN}`;
   const response = await axios.get(url);
   const posts = response.data.data;
 
