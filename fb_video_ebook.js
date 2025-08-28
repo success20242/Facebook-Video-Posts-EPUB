@@ -6,11 +6,11 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import Epub from "epub-gen";
 
 // ---------------- CONFIG ----------------
-const PAGE_ID = "YOUR_PAGE_ID";
-const ACCESS_TOKEN = "YOUR_PAGE_ACCESS_TOKEN";
+const PAGE_ID = "1244048613878999";
+const ACCESS_TOKEN = "EAARrdKO2rNcBPI9SQUJ9jC4ASpk7pO9vbKo82T6fvS5QeYgXliRp9NBaZAuizRkl4AuJmKvNHrVU52VKVlLNvBVZBmRHbWOTJ9DQZAYAk32cOfL50vxZCdxw3CesIDZCIrV1ESLgGWf8JmNqZBIkNillii514ZAqOpJZBp5pzGaS7NjgevqkCJ45bV2ve9ZBAxzyIEm8b7jv0ETAKOtYuESIZD";
 const SINCE = "2025-07-07";  // 52 days ago
 const UNTIL = "2025-08-28";  // today
-const AUTHOR = "Your Name";
+const AUTHOR = "Onyekachi C. Ebosi";
 const TITLE = "Facebook Video Posts eBook";
 
 // ---------------- FOLDERS ----------------
