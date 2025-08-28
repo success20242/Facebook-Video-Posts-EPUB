@@ -7,9 +7,9 @@ import Epub from "epub-gen";
 
 // ---------------- CONFIG ----------------
 const PAGE_ID = "1244048613878999";
-const ACCESS_TOKEN = "EAARrdKO2rNcBPI9SQUJ9jC4ASpk7pO9vbKo82T6fvS5QeYgXliRp9NBaZAuizRkl4AuJmKvNHrVU52VKVlLNvBVZBmRHbWOTJ9DQZAYAk32cOfL50vxZCdxw3CesIDZCIrV1ESLgGWf8JmNqZBIkNillii514ZAqOpJZBp5pzGaS7NjgevqkCJ45bV2ve9ZBAxzyIEm8b7jv0ETAKOtYuESIZD";
-const SINCE = "2025-07-07";  // 52 days ago
-const UNTIL = "2025-08-28";  // today
+const ACCESS_TOKEN = "EAAOzUEFSpk4BPU6sJOI1YmWu2iKwRKlzG7xhqZCyelZA4iBTwGtRid78ZCgwwb9t6FAz9SkKaeygG96UsvXwMUsXZBFieE6p3LpOadHbUMZAbGHymAqmAPXIQekk32KZAk5XurQh04gyv71pEJJwPv3axFJXMGVmzlQRZAqml3jOIFJ5iJJTpJX4e8xdQjJgTvZBSEe4OfFQ3g3b4MQG9NdmI6ThlIoCSDAZBM4YFGuZBErnmeYaOzC2yQR6Xc9AZDZD";
+const SINCE = "2025-07-07";
+const UNTIL = "2025-08-28";
 const AUTHOR = "Onyekachi C. Ebosi";
 const TITLE = "Facebook Video Posts eBook";
 
@@ -117,8 +117,9 @@ async function generateCover(title = TITLE, author = AUTHOR) {
 
     for (const post of posts) {
       const postDate = new Date(post.created_time).toDateString();
-      let html = `<h2 id="${post.id}">${postDate}</h2>`;
-      html += `<p>${post.message || ""}</p>`;
+      let html = `<div style="padding:10px;">
+                    <h2 id="${post.id}" style="font-size:1.2em; margin-bottom:5px;">${postDate}</h2>
+                    <p style="font-size:1em; line-height:1.4;">${post.message || ""}</p>`;
 
       for (const att of post.attachments.data) {
         if (att.type === "video_inline" || att.type === "video") {
@@ -128,9 +129,8 @@ async function generateCover(title = TITLE, author = AUTHOR) {
 
           // Download thumbnail
           const thumbUrl = att.media?.image?.src;
-          let thumbFile = "";
           if (thumbUrl) {
-            thumbFile = `${post.id}.jpg`;
+            const thumbFile = `${post.id}.jpg`;
             await downloadFile(thumbUrl, THUMB_DIR, thumbFile);
           }
 
@@ -139,13 +139,17 @@ async function generateCover(title = TITLE, author = AUTHOR) {
           const gifPath = path.join(GIF_DIR, gifFile);
           await generateGIF(videoPath, gifPath);
 
-          // Add GIF preview linking to video
-          html += `<p><a href="videos/${videoFile}" target="_blank">
-                     <img src="gifs/${gifFile}" style="max-width:100%;height:auto;" alt="Video Preview"/>
-                   </a></p>`;
+          // Link GIF to Facebook video
+          const fbVideoUrl = `https://www.facebook.com/${PAGE_ID}/videos/${post.id}`;
+          html += `<p style="text-align:center;">
+                     <a href="${fbVideoUrl}" target="_blank">
+                       <img src="gifs/${gifFile}" style="max-width:100%; height:auto;" alt="Video preview of post on ${postDate}"/>
+                     </a>
+                   </p>`;
         }
       }
 
+      html += `</div>`;
       content.push({ title: postDate, data: html });
     }
 

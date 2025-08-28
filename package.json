@@ -2,6 +2,7 @@
   "name": "fb-video-ebook",
   "version": "1.0.0",
   "description": "Fetch Facebook video posts and generate a Kindle-ready EPUB with GIF previews and cover.",
+  "type": "module",
   "main": "fb_video_ebook.js",
   "scripts": {
     "start": "node fb_video_ebook.js"
@@ -14,7 +15,7 @@
     "gif",
     "automation"
   ],
-  "author": "Your Name",
+  "author": "Onyekachi C. Ebosi",
   "license": "MIT",
   "dependencies": {
     "@napi-rs/canvas": "^0.1.77",
