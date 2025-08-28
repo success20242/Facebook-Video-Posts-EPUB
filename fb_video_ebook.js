@@ -21,31 +21,17 @@ const ASSETS_DIR = path.join(process.cwd(), "ebook_assets");
 const VIDEO_DIR = path.join(ASSETS_DIR, "videos");
 const GIF_DIR = path.join(ASSETS_DIR, "gifs");
 const THUMB_DIR = path.join(ASSETS_DIR, "thumbnails");
+
 [ASSETS_DIR, VIDEO_DIR, GIF_DIR, THUMB_DIR].forEach(dir => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
+
 const COVER_PATH = path.join(ASSETS_DIR, "cover.jpg");
 
 // ---------------- HELPERS ----------------
-async function fetchVideoPosts() {
-  try {
-    const url = `https://graph.facebook.com/v23.0/${PAGE_ID}/posts?fields=message,created_time,attachments{media,type,url,subattachments}&since=${SINCE}&until=${UNTIL}&access_token=${ACCESS_TOKEN}`;
-    const response = await axios.get(url);
-    const posts = response.data.data || [];
 
-    return posts.filter(post =>
-      post.attachments?.data.some(att =>
-        att.type === "video_inline" || att.type === "video" ||
-        (att.subattachments?.data.some(sub => sub.type === "video_inline" || sub.type === "video"))
-      )
-    );
-  } catch (err) {
-    console.error("Error fetching posts:", err.message);
-    return [];
-  }
-}
-
-async function downloadFile(url, dir, filename) {
+// Retryable download
+async function downloadFile(url, dir, filename, retries = 2) {
   const filePath = path.join(dir, filename);
   if (fs.existsSync(filePath)) return filePath;
 
@@ -53,31 +39,39 @@ async function downloadFile(url, dir, filename) {
     const writer = fs.createWriteStream(filePath);
     const response = await axios({ url, method: "GET", responseType: "stream" });
     response.data.pipe(writer);
+
     return new Promise((resolve, reject) => {
       writer.on("finish", () => resolve(filePath));
       writer.on("error", reject);
     });
   } catch (err) {
+    if (retries > 0) {
+      console.warn(`Retrying download for ${filename}...`);
+      return downloadFile(url, dir, filename, retries - 1);
+    }
     console.error(`Failed to download ${url}:`, err.message);
     return null;
   }
 }
 
+// Generate short GIF preview from video
 async function generateGIF(videoPath, gifPath) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     exec(`ffmpeg -y -i "${videoPath}" -ss 0 -t 3 -vf "fps=10,scale=320:-1:flags=lanczos" "${gifPath}"`, error => {
       if (error) {
         console.warn(`GIF generation failed for ${videoPath}. Using thumbnail instead.`);
-        resolve(null); // Fallback: return null instead of failing
+        resolve(null); // fallback to thumbnail
       } else resolve(gifPath);
     });
   });
 }
 
+// Generate EPUB cover
 async function generateCover(title = TITLE, author = AUTHOR) {
   const thumbs = fs.readdirSync(THUMB_DIR).filter(f => f.endsWith(".jpg"));
-  const cols = Math.min(3, thumbs.length);
-  const rows = Math.ceil(thumbs.length / cols);
+
+  const cols = Math.min(3, thumbs.length || 1);
+  const rows = Math.ceil((thumbs.length || 1) / cols);
   const thumbWidth = 300;
   const thumbHeight = 200;
   const canvasWidth = cols * thumbWidth + 100;
@@ -99,16 +93,44 @@ async function generateCover(title = TITLE, author = AUTHOR) {
 
   const xOffset = 50;
   const yOffset = 220;
-
   for (let i = 0; i < thumbs.length; i++) {
-    const img = await loadImage(path.join(THUMB_DIR, thumbs[i]));
-    const x = xOffset + (i % cols) * thumbWidth;
-    const y = yOffset + Math.floor(i / cols) * thumbHeight;
-    ctx.drawImage(img, x, y, thumbWidth, thumbHeight);
+    try {
+      const img = await loadImage(path.join(THUMB_DIR, thumbs[i]));
+      const x = xOffset + (i % cols) * thumbWidth;
+      const y = yOffset + Math.floor(i / cols) * thumbHeight;
+      ctx.drawImage(img, x, y, thumbWidth, thumbHeight);
+    } catch (e) {
+      console.warn(`Failed to load thumbnail ${thumbs[i]} for cover:`, e.message);
+    }
   }
 
   fs.writeFileSync(COVER_PATH, canvas.toBuffer("image/jpeg"));
   console.log("Cover image generated:", COVER_PATH);
+}
+
+// Fetch video posts from Facebook Graph API
+async function fetchVideoPosts() {
+  try {
+    const url = `https://graph.facebook.com/v23.0/${PAGE_ID}/posts`;
+    const params = {
+      fields: 'message,created_time,attachments{media,type,url,subattachments}',
+      since: SINCE,
+      until: UNTIL,
+      access_token: ACCESS_TOKEN
+    };
+
+    const res = await axios.get(url, { params });
+    const posts = res.data.data || [];
+    return posts.filter(post =>
+      post.attachments?.data.some(att =>
+        att.type === "video_inline" || att.type === "video" ||
+        (att.subattachments?.data.some(sub => sub.type === "video_inline" || sub.type === "video"))
+      )
+    );
+  } catch (err) {
+    console.error("Error fetching posts:", err.response?.data || err.message);
+    return [];
+  }
 }
 
 // ---------------- MAIN WORKFLOW ----------------
@@ -122,32 +144,30 @@ async function generateCover(title = TITLE, author = AUTHOR) {
     console.log("Fetching video posts...");
     const posts = await fetchVideoPosts();
     if (!posts.length) return console.log("No video posts found in this date range.");
-
     console.log(`Found ${posts.length} video posts.`);
 
     const content = [];
 
-    await Promise.all(posts.map(async post => {
+    for (const post of posts) {
       const postDate = new Date(post.created_time).toDateString();
       let html = `<div style="padding:10px;">
                     <h2 id="${post.id}" style="font-size:1.2em; margin-bottom:5px;">${postDate}</h2>
                     <p style="font-size:1em; line-height:1.4;">${post.message || ""}</p>`;
 
-      const attachments = post.attachments.data.flatMap(att =>
-        att.subattachments?.data || [att]
-      );
+      const attachments = post.attachments.data.flatMap(att => att.subattachments?.data || [att]);
 
-      await Promise.all(attachments.map(async att => {
+      for (const att of attachments) {
         if (att.type === "video_inline" || att.type === "video") {
           const videoFile = `${post.id}.mp4`;
           const videoPath = await downloadFile(att.url, VIDEO_DIR, videoFile);
-          if (!videoPath) return;
+          if (!videoPath) continue;
 
           const thumbUrl = att.media?.image?.src;
           let thumbFile = null;
           if (thumbUrl) {
             thumbFile = `${post.id}.jpg`;
-            await downloadFile(thumbUrl, THUMB_DIR, thumbFile);
+            const downloadedThumb = await downloadFile(thumbUrl, THUMB_DIR, thumbFile);
+            if (!downloadedThumb) thumbFile = null;
           }
 
           const gifFile = `${post.id}.gif`;
@@ -169,12 +189,12 @@ async function generateCover(title = TITLE, author = AUTHOR) {
                      </p>`;
           }
         }
-      }));
+      }
 
       html += `</div>`;
       content.push({ title: postDate, data: html });
       console.log(`Processed post: ${post.id}`);
-    }));
+    }
 
     await generateCover();
 
@@ -189,6 +209,7 @@ async function generateCover(title = TITLE, author = AUTHOR) {
 
     await new Epub(option).promise;
     console.log("EPUB generated successfully with cover, GIF previews, TOC, and video links!");
+
   } catch (err) {
     console.error("Error:", err);
   }
