@@ -1,0 +1,24 @@
+{
+  "name": "fb-video-ebook",
+  "version": "1.0.0",
+  "description": "Fetch Facebook video posts and generate a Kindle-ready EPUB with GIF previews and cover.",
+  "main": "fb_video_ebook.js",
+  "scripts": {
+    "start": "node fb_video_ebook.js"
+  },
+  "keywords": [
+    "facebook",
+    "video",
+    "ebook",
+    "epub",
+    "gif",
+    "automation"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.5",
+    "canvas": "^2.12.0",
+    "epub-gen": "^0.1.0"
+  }
+}
