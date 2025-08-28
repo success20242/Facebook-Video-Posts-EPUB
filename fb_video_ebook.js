@@ -1,4 +1,4 @@
-import dotenv from "dotenv";
+import dotenv from "dotenv"; 
 dotenv.config();
 
 import axios from "axios";
@@ -32,6 +32,8 @@ const THUMB_DIR = path.join(ASSETS_DIR, "thumbnails");
 });
 
 const COVER_PATH = path.join(ASSETS_DIR, "cover.jpg");
+const PROCESSED_FILE = path.join(ASSETS_DIR, "processed.json");
+let processedPosts = fs.existsSync(PROCESSED_FILE) ? JSON.parse(fs.readFileSync(PROCESSED_FILE, "utf-8")) : [];
 
 // ---------------- HELPERS ----------------
 async function downloadFile(url, dir, filename, retries = 2) {
@@ -155,6 +157,11 @@ async function fetchVideoPosts() {
     const content = [];
 
     for (const post of posts) {
+      if (processedPosts.includes(post.id)) {
+        console.log(`⚠️ Skipping already processed post: ${post.id}`);
+        continue;
+      }
+
       const postDate = new Date(post.created_time).toDateString();
       let html = `<div style="padding:10px;">
                     <h2 id="${post.id}" style="font-size:1.2em; margin-bottom:5px;">${postDate}</h2>
@@ -168,47 +175,35 @@ async function fetchVideoPosts() {
           const videoPath = await downloadFile(att.url, VIDEO_DIR, videoFile);
           if (!videoPath) continue;
 
-          const thumbUrl = att.media?.image?.src;
+          // Download thumbnail if missing
           let thumbFile = null;
+          const thumbUrl = att.media?.image?.src;
           if (thumbUrl) {
             thumbFile = `${post.id}.jpg`;
-            const downloadedThumb = await downloadFile(thumbUrl, THUMB_DIR, thumbFile);
-            if (!downloadedThumb || !fs.existsSync(path.join(THUMB_DIR, thumbFile))) {
-              thumbFile = null;
+            if (!fs.existsSync(path.join(THUMB_DIR, thumbFile))) {
+              const downloadedThumb = await downloadFile(thumbUrl, THUMB_DIR, thumbFile);
+              if (!downloadedThumb) thumbFile = null;
             }
           }
 
+          // Generate GIF if missing
           const gifFile = `${post.id}.gif`;
           const gifPath = path.join(GIF_DIR, gifFile);
-          let generatedGIF = null;
-          if (!fs.existsSync(gifPath)) {
-            generatedGIF = await generateGIF(videoPath, gifPath);
-            if (!generatedGIF || !fs.existsSync(gifPath)) generatedGIF = null;
-          } else {
-            generatedGIF = gifPath;
-          }
+          let generatedGIF = fs.existsSync(gifPath) ? gifPath : await generateGIF(videoPath, gifPath);
 
           const fbVideoUrl = `https://www.facebook.com/${PAGE_ID}/videos/${post.id}`;
-
-          if (generatedGIF) {
-            html += `<p style="text-align:center;">
-                       <a href="${fbVideoUrl}" target="_blank">
-                         <img src="file://${gifPath}" style="max-width:100%; height:auto;" alt="Video preview of post on ${postDate}"/>
-                       </a>
-                     </p>`;
-          } else if (thumbFile) {
-            html += `<p style="text-align:center;">
-                       <a href="${fbVideoUrl}" target="_blank">
-                         <img src="file://${path.join(THUMB_DIR, thumbFile)}" style="max-width:100%; height:auto;" alt="Video thumbnail of post on ${postDate}"/>
-                       </a>
-                     </p>`;
-          }
+          if (generatedGIF) html += `<p style="text-align:center;"><a href="${fbVideoUrl}" target="_blank"><img src="file://${gifPath}" style="max-width:100%; height:auto;" alt="Video preview"/></a></p>`;
+          else if (thumbFile) html += `<p style="text-align:center;"><a href="${fbVideoUrl}" target="_blank"><img src="file://${path.join(THUMB_DIR, thumbFile)}" style="max-width:100%; height:auto;" alt="Video thumbnail"/></a></p>`;
         }
       }
 
       html += `</div>`;
       content.push({ title: postDate, data: html });
       console.log(`Processed post: ${post.id}`);
+
+      // Add to processed posts
+      processedPosts.push(post.id);
+      fs.writeFileSync(PROCESSED_FILE, JSON.stringify(processedPosts, null, 2));
     }
 
     await generateCover();
