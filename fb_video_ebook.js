@@ -2,13 +2,13 @@ import axios from "axios";
 import fs from "fs";
 import path from "path";
 import { exec } from "child_process";
-import { createCanvas, loadImage } from "canvas";
+import { createCanvas, loadImage } from "@napi-rs/canvas";
 import Epub from "epub-gen";
 
 // ---------------- CONFIG ----------------
 const PAGE_ID = "YOUR_PAGE_ID";
 const ACCESS_TOKEN = "YOUR_PAGE_ACCESS_TOKEN";
-const SINCE = "2025-08-08";  // 20 days ago
+const SINCE = "2025-07-07";  // 52 days ago
 const UNTIL = "2025-08-28";  // today
 const AUTHOR = "Your Name";
 const TITLE = "Facebook Video Posts eBook";
