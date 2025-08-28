@@ -34,8 +34,6 @@ const THUMB_DIR = path.join(ASSETS_DIR, "thumbnails");
 const COVER_PATH = path.join(ASSETS_DIR, "cover.jpg");
 
 // ---------------- HELPERS ----------------
-
-// Download with retry
 async function downloadFile(url, dir, filename, retries = 2) {
   const filePath = path.join(dir, filename);
   if (fs.existsSync(filePath)) return filePath;
@@ -59,7 +57,6 @@ async function downloadFile(url, dir, filename, retries = 2) {
   }
 }
 
-// Generate GIF preview from video
 async function generateGIF(videoPath, gifPath) {
   return new Promise((resolve) => {
     exec(`ffmpeg -y -i "${videoPath}" -ss 0 -t 3 -vf "fps=10,scale=320:-1:flags=lanczos" "${gifPath}"`, error => {
@@ -71,10 +68,8 @@ async function generateGIF(videoPath, gifPath) {
   });
 }
 
-// Generate EPUB cover
 async function generateCover(title = TITLE, author = AUTHOR) {
   const thumbs = fs.readdirSync(THUMB_DIR).filter(f => f.endsWith(".jpg"));
-
   const cols = Math.min(3, thumbs.length || 1);
   const rows = Math.ceil((thumbs.length || 1) / cols);
   const thumbWidth = 300;
@@ -99,10 +94,13 @@ async function generateCover(title = TITLE, author = AUTHOR) {
   const yOffset = 220;
   for (let i = 0; i < thumbs.length; i++) {
     try {
-      const img = await loadImage(path.join(THUMB_DIR, thumbs[i]));
-      const x = xOffset + (i % cols) * thumbWidth;
-      const y = yOffset + Math.floor(i / cols) * thumbHeight;
-      ctx.drawImage(img, x, y, thumbWidth, thumbHeight);
+      const imgPath = path.join(THUMB_DIR, thumbs[i]);
+      if (fs.existsSync(imgPath)) {
+        const img = await loadImage(imgPath);
+        const x = xOffset + (i % cols) * thumbWidth;
+        const y = yOffset + Math.floor(i / cols) * thumbHeight;
+        ctx.drawImage(img, x, y, thumbWidth, thumbHeight);
+      }
     } catch (e) {
       console.warn(`Failed to load thumbnail ${thumbs[i]} for cover:`, e.message);
     }
@@ -112,7 +110,6 @@ async function generateCover(title = TITLE, author = AUTHOR) {
   console.log("📘 Cover image generated:", COVER_PATH);
 }
 
-// Fetch ALL video posts from Facebook Graph API (with pagination)
 async function fetchVideoPosts() {
   let allPosts = [];
   let nextUrl = `https://graph.facebook.com/v23.0/${PAGE_ID}/posts?fields=message,created_time,attachments{media,type,url,subattachments}&since=${SINCE}&until=${UNTIL}&access_token=${ACCESS_TOKEN}`;
@@ -176,24 +173,33 @@ async function fetchVideoPosts() {
           if (thumbUrl) {
             thumbFile = `${post.id}.jpg`;
             const downloadedThumb = await downloadFile(thumbUrl, THUMB_DIR, thumbFile);
-            if (!downloadedThumb) thumbFile = null;
+            if (!downloadedThumb || !fs.existsSync(path.join(THUMB_DIR, thumbFile))) {
+              thumbFile = null;
+            }
           }
 
           const gifFile = `${post.id}.gif`;
           const gifPath = path.join(GIF_DIR, gifFile);
-          const generatedGIF = await generateGIF(videoPath, gifPath);
+          let generatedGIF = null;
+          if (!fs.existsSync(gifPath)) {
+            generatedGIF = await generateGIF(videoPath, gifPath);
+            if (!generatedGIF || !fs.existsSync(gifPath)) generatedGIF = null;
+          } else {
+            generatedGIF = gifPath;
+          }
 
           const fbVideoUrl = `https://www.facebook.com/${PAGE_ID}/videos/${post.id}`;
+
           if (generatedGIF) {
             html += `<p style="text-align:center;">
                        <a href="${fbVideoUrl}" target="_blank">
-                         <img src="gifs/${gifFile}" style="max-width:100%; height:auto;" alt="Video preview of post on ${postDate}"/>
+                         <img src="file://${gifPath}" style="max-width:100%; height:auto;" alt="Video preview of post on ${postDate}"/>
                        </a>
                      </p>`;
           } else if (thumbFile) {
             html += `<p style="text-align:center;">
                        <a href="${fbVideoUrl}" target="_blank">
-                         <img src="thumbnails/${thumbFile}" style="max-width:100%; height:auto;" alt="Video thumbnail of post on ${postDate}"/>
+                         <img src="file://${path.join(THUMB_DIR, thumbFile)}" style="max-width:100%; height:auto;" alt="Video thumbnail of post on ${postDate}"/>
                        </a>
                      </p>`;
           }
