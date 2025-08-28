@@ -9,12 +9,17 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import Epub from "epub-gen";
 
 // ---------------- CONFIG ----------------
-const PAGE_ID = process.env.PAGE_ID;
-const ACCESS_TOKEN = process.env.ACCESS_TOKEN;
+const PAGE_ID = process.env.FB_PAGE_ID;
+const ACCESS_TOKEN = process.env.FB_ACCESS_TOKEN;
 const SINCE = process.env.SINCE;
 const UNTIL = process.env.UNTIL;
 const AUTHOR = process.env.AUTHOR;
 const TITLE = process.env.TITLE;
+
+if (!PAGE_ID || !ACCESS_TOKEN) {
+  console.error("⚠️ Missing FB_PAGE_ID or FB_ACCESS_TOKEN in .env");
+  process.exit(1);
+}
 
 // ---------------- FOLDERS ----------------
 const ASSETS_DIR = path.join(process.cwd(), "ebook_assets");
@@ -30,7 +35,7 @@ const COVER_PATH = path.join(ASSETS_DIR, "cover.jpg");
 
 // ---------------- HELPERS ----------------
 
-// Retryable download
+// Download with retry
 async function downloadFile(url, dir, filename, retries = 2) {
   const filePath = path.join(dir, filename);
   if (fs.existsSync(filePath)) return filePath;
@@ -54,13 +59,13 @@ async function downloadFile(url, dir, filename, retries = 2) {
   }
 }
 
-// Generate short GIF preview from video
+// Generate GIF preview from video
 async function generateGIF(videoPath, gifPath) {
   return new Promise((resolve) => {
     exec(`ffmpeg -y -i "${videoPath}" -ss 0 -t 3 -vf "fps=10,scale=320:-1:flags=lanczos" "${gifPath}"`, error => {
       if (error) {
         console.warn(`GIF generation failed for ${videoPath}. Using thumbnail instead.`);
-        resolve(null); // fallback to thumbnail
+        resolve(null);
       } else resolve(gifPath);
     });
   });
@@ -83,7 +88,6 @@ async function generateCover(title = TITLE, author = AUTHOR) {
   ctx.fillStyle = "#1a1a1a";
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-  // Title & Author
   ctx.fillStyle = "#ffffff";
   ctx.font = "bold 80px Sans";
   ctx.textAlign = "center";
@@ -105,38 +109,44 @@ async function generateCover(title = TITLE, author = AUTHOR) {
   }
 
   fs.writeFileSync(COVER_PATH, canvas.toBuffer("image/jpeg"));
-  console.log("Cover image generated:", COVER_PATH);
+  console.log("📘 Cover image generated:", COVER_PATH);
 }
 
-// Fetch video posts from Facebook Graph API
+// Fetch ALL video posts from Facebook Graph API (with pagination)
 async function fetchVideoPosts() {
-  try {
-    const url = `https://graph.facebook.com/v23.0/${PAGE_ID}/posts`;
-    const params = {
-      fields: 'message,created_time,attachments{media,type,url,subattachments}',
-      since: SINCE,
-      until: UNTIL,
-      access_token: ACCESS_TOKEN
-    };
+  let allPosts = [];
+  let nextUrl = `https://graph.facebook.com/v23.0/${PAGE_ID}/posts?fields=message,created_time,attachments{media,type,url,subattachments}&since=${SINCE}&until=${UNTIL}&access_token=${ACCESS_TOKEN}`;
 
-    const res = await axios.get(url, { params });
-    const posts = res.data.data || [];
-    return posts.filter(post =>
-      post.attachments?.data.some(att =>
-        att.type === "video_inline" || att.type === "video" ||
-        (att.subattachments?.data.some(sub => sub.type === "video_inline" || sub.type === "video"))
-      )
-    );
+  try {
+    while (nextUrl) {
+      console.log("📡 Fetching:", nextUrl);
+      const res = await axios.get(nextUrl);
+      const { data, paging } = res.data;
+
+      if (data && data.length > 0) {
+        const videoPosts = data.filter(post =>
+          post.attachments?.data.some(att =>
+            att.type === "video_inline" || att.type === "video" ||
+            (att.subattachments?.data.some(sub => sub.type === "video_inline" || sub.type === "video"))
+          )
+        );
+        allPosts = allPosts.concat(videoPosts);
+      }
+
+      nextUrl = paging?.next || null;
+    }
+
+    console.log(`✅ Total video posts fetched: ${allPosts.length}`);
+    return allPosts;
   } catch (err) {
-    console.error("Error fetching posts:", err.response?.data || err.message);
-    return [];
+    console.error("❌ Error fetching posts:", err.response?.data || err.message);
+    return allPosts;
   }
 }
 
 // ---------------- MAIN WORKFLOW ----------------
 (async () => {
   try {
-    // Check ffmpeg
     exec("ffmpeg -version", (err) => {
       if (err) throw new Error("ffmpeg not found. Please install ffmpeg.");
     });
@@ -144,7 +154,6 @@ async function fetchVideoPosts() {
     console.log("Fetching video posts...");
     const posts = await fetchVideoPosts();
     if (!posts.length) return console.log("No video posts found in this date range.");
-    console.log(`Found ${posts.length} video posts.`);
 
     const content = [];
 
@@ -208,8 +217,7 @@ async function fetchVideoPosts() {
     };
 
     await new Epub(option).promise;
-    console.log("EPUB generated successfully with cover, GIF previews, TOC, and video links!");
-
+    console.log("🎉 EPUB generated successfully with cover, GIF previews, TOC, and video links!");
   } catch (err) {
     console.error("Error:", err);
   }
