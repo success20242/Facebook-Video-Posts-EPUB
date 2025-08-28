@@ -17,8 +17,8 @@
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
+    "@napi-rs/canvas": "^0.1.77",
     "axios": "^1.6.5",
-    "canvas": "^2.12.0",
     "epub-gen": "^0.1.0"
   }
 }
