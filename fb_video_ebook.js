@@ -1,4 +1,4 @@
-import dotenv from "dotenv";
+import dotenv from "dotenv"; 
 dotenv.config();
 
 import axios from "axios";
@@ -118,17 +118,28 @@ async function generateCover(title = TITLE, author = AUTHOR) {
   console.log("📘 Cover image generated:", COVER_PATH);
 }
 
+// ---------------- VIDEO VALIDATION ----------------
+async function validateVideoURL(url) {
+  try {
+    const res = await axios.head(url, { maxRedirects: 5 });
+    return res.status >= 200 && res.status < 400;
+  } catch (err) {
+    console.warn(`⚠️ Video URL invalid or inaccessible: ${url}`);
+    return false;
+  }
+}
+
+// ---------------- FORMAT POST ----------------
 function formatPostForEPUB(post, thumbnailFile, hashtagIndex = 0) {
   const { id, created_time, message } = post;
   const videoLink = `https://www.facebook.com/${PAGE_ID}/videos/${id}`;
   const description = message || "Shared respectfully for cultural education, insight, and appreciation of heritage artifacts.";
-
   const hashtags = HASHTAGS[hashtagIndex % HASHTAGS.length];
 
   return {
     title: new Date(created_time).toDateString(),
     data: `
-      <h1>${new Date(created_time).toDateString()}</h1>
+      <h1 id="${new Date(created_time).toDateString().replace(/\s+/g,'_')}">${new Date(created_time).toDateString()}</h1>
       <p style="text-align:center;">
         <a href="${videoLink}" target="_blank">
           <img src="${thumbnailFile}" alt="Video thumbnail" style="max-width:100%; height:auto; border:1px solid #ccc;"/>
@@ -147,6 +158,7 @@ function formatPostForEPUB(post, thumbnailFile, hashtagIndex = 0) {
   };
 }
 
+// ---------------- FETCH POSTS ----------------
 async function fetchFacebookPosts(limit = 50) {
   let allPosts = [];
   let nextUrl = `https://graph.facebook.com/v23.0/${PAGE_ID}/posts?fields=id,message,created_time,attachments{media,type,url,subattachments}&since=${SINCE}&until=${UNTIL}&limit=${limit}&access_token=${ACCESS_TOKEN}`;
@@ -203,9 +215,14 @@ async function fetchFacebookPosts(limit = 50) {
 
       for (const att of attachments) {
         if (att.type === "video_inline" || att.type === "video") {
+          const isValid = await validateVideoURL(att.url);
+          if (!isValid) {
+            console.warn(`Skipping inaccessible video: ${att.url}`);
+            continue;
+          }
+
           const videoFile = `${post.id}.mp4`;
           const videoPath = await downloadFile(att.url, VIDEO_DIR, videoFile);
-
           if (!videoPath) continue;
 
           const thumbUrl = att.media?.image?.src;
@@ -234,8 +251,7 @@ async function fetchFacebookPosts(limit = 50) {
           <img src="${link.thumb}" alt="${link.title}" style="max-width:200px;height:auto;border:1px solid #ccc;"/>
           <br/>${link.title}
         </a>
-      </p>`
-    ).join("\n");
+      </p>`).join("\n");
 
     epubChapters.unshift({
       title: "Preview / Index",
@@ -254,7 +270,7 @@ async function fetchFacebookPosts(limit = 50) {
     };
 
     await new Epub(option).promise;
-    console.log("🎉 EPUB generated successfully with TOC, preview page, cover, and video links!");
+    console.log("🎉 EPUB generated successfully with TOC, preview page, cover, and valid video links!");
   } catch (err) {
     console.error("❌ Error:", err);
   }
