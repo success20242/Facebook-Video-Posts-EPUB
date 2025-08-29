@@ -1,8 +1,8 @@
-import dotenv from "dotenv"; 
+import dotenv from "dotenv";
 dotenv.config();
 
 import axios from "axios";
-import fs from "fs";
+import fs from "fs-extra";
 import path from "path";
 import { exec } from "child_process";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
@@ -15,6 +15,7 @@ const SINCE = process.env.SINCE;
 const UNTIL = process.env.UNTIL;
 const AUTHOR = process.env.AUTHOR;
 const TITLE = process.env.TITLE;
+const OUTPUT_EPUB = process.env.OUTPUT_EPUB || "Facebook_Video_Posts.epub";
 
 if (!PAGE_ID || !ACCESS_TOKEN) {
   console.error("⚠️ Missing FB_PAGE_ID or FB_ACCESS_TOKEN in .env");
@@ -27,13 +28,18 @@ const VIDEO_DIR = path.join(ASSETS_DIR, "videos");
 const GIF_DIR = path.join(ASSETS_DIR, "gifs");
 const THUMB_DIR = path.join(ASSETS_DIR, "thumbnails");
 
-[ASSETS_DIR, VIDEO_DIR, GIF_DIR, THUMB_DIR].forEach(dir => {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-});
+[ASSETS_DIR, VIDEO_DIR, GIF_DIR, THUMB_DIR].forEach(dir => fs.ensureDirSync(dir));
 
 const COVER_PATH = path.join(ASSETS_DIR, "cover.jpg");
 const PROCESSED_FILE = path.join(ASSETS_DIR, "processed.json");
 let processedPosts = fs.existsSync(PROCESSED_FILE) ? JSON.parse(fs.readFileSync(PROCESSED_FILE, "utf-8")) : [];
+
+// ---------------- HASHTAGS ----------------
+const HASHTAGS = [
+  "#AfricanHeritage", "#Artifacts", "#Culture",
+  "#TraditionalArt", "#Educational", "#CulturalPreservation",
+  "#ArtHistory", "#HeritageEducation", "#LearnCulture"
+];
 
 // ---------------- HELPERS ----------------
 async function downloadFile(url, dir, filename, retries = 2) {
@@ -42,7 +48,7 @@ async function downloadFile(url, dir, filename, retries = 2) {
 
   try {
     const writer = fs.createWriteStream(filePath);
-    const response = await axios({ url, method: "GET", responseType: "stream" });
+    const response = await axios.get(url, { responseType: "stream" });
     response.data.pipe(writer);
 
     return new Promise((resolve, reject) => {
@@ -60,7 +66,7 @@ async function downloadFile(url, dir, filename, retries = 2) {
 }
 
 async function generateGIF(videoPath, gifPath) {
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     exec(`ffmpeg -y -i "${videoPath}" -ss 0 -t 3 -vf "fps=10,scale=320:-1:flags=lanczos" "${gifPath}"`, error => {
       if (error) {
         console.warn(`GIF generation failed for ${videoPath}. Using thumbnail instead.`);
@@ -112,9 +118,38 @@ async function generateCover(title = TITLE, author = AUTHOR) {
   console.log("📘 Cover image generated:", COVER_PATH);
 }
 
-async function fetchVideoPosts() {
+function formatPostForEPUB(post, thumbnailFile, hashtagIndex = 0) {
+  const { id, created_time, message } = post;
+  const videoLink = `https://www.facebook.com/${PAGE_ID}/videos/${id}`;
+  const description = message || "Shared respectfully for cultural education, insight, and appreciation of heritage artifacts.";
+
+  const hashtags = HASHTAGS[hashtagIndex % HASHTAGS.length];
+
+  return {
+    title: new Date(created_time).toDateString(),
+    data: `
+      <h1>${new Date(created_time).toDateString()}</h1>
+      <p style="text-align:center;">
+        <a href="${videoLink}" target="_blank">
+          <img src="${thumbnailFile}" alt="Video thumbnail" style="max-width:100%; height:auto; border:1px solid #ccc;"/>
+        </a>
+      </p>
+      <p>${description}</p>
+      <h3>Educational Insights:</h3>
+      <p>Explore the cultural significance, historical context, and artistic mastery of this artifact.</p>
+      <h3>Social & Cultural Impact:</h3>
+      <p>Learn how this artifact influences identity, inspires creativity, and connects past practices with modern interpretations.</p>
+      <h3>Visual Notes:</h3>
+      <p>Notice design elements, colors, motifs, and symbolic forms that reflect cultural values and artistic skill.</p>
+      <p>🔗 Original Video: <a href="${videoLink}" target="_blank">Watch on Facebook</a></p>
+      <p>Hashtags: ${hashtags}</p>
+    `
+  };
+}
+
+async function fetchFacebookPosts(limit = 50) {
   let allPosts = [];
-  let nextUrl = `https://graph.facebook.com/v23.0/${PAGE_ID}/posts?fields=message,created_time,attachments{media,type,url,subattachments}&since=${SINCE}&until=${UNTIL}&access_token=${ACCESS_TOKEN}`;
+  let nextUrl = `https://graph.facebook.com/v23.0/${PAGE_ID}/posts?fields=id,message,created_time,attachments{media,type,url,subattachments}&since=${SINCE}&until=${UNTIL}&limit=${limit}&access_token=${ACCESS_TOKEN}`;
 
   try {
     while (nextUrl) {
@@ -143,68 +178,69 @@ async function fetchVideoPosts() {
   }
 }
 
-// ---------------- MAIN WORKFLOW ----------------
+// ---------------- MAIN ----------------
 (async () => {
   try {
     exec("ffmpeg -version", (err) => {
       if (err) throw new Error("ffmpeg not found. Please install ffmpeg.");
     });
 
-    console.log("Fetching video posts...");
-    const posts = await fetchVideoPosts();
+    const posts = await fetchFacebookPosts();
     if (!posts.length) return console.log("No video posts found in this date range.");
 
-    const content = [];
+    const epubChapters = [];
+    const previewLinks = [];
 
-    for (const post of posts) {
+    for (let i = 0; i < posts.length; i++) {
+      const post = posts[i];
       if (processedPosts.includes(post.id)) {
         console.log(`⚠️ Skipping already processed post: ${post.id}`);
         continue;
       }
 
-      const postDate = new Date(post.created_time).toDateString();
-      let html = `<div style="padding:10px;">
-                    <h2 id="${post.id}" style="font-size:1.2em; margin-bottom:5px;">${postDate}</h2>
-                    <p style="font-size:1em; line-height:1.4;">${post.message || ""}</p>`;
-
       const attachments = post.attachments.data.flatMap(att => att.subattachments?.data || [att]);
+      let thumbnailFile = "default-thumbnail.jpeg";
 
       for (const att of attachments) {
         if (att.type === "video_inline" || att.type === "video") {
           const videoFile = `${post.id}.mp4`;
           const videoPath = await downloadFile(att.url, VIDEO_DIR, videoFile);
+
           if (!videoPath) continue;
 
-          // Download thumbnail if missing
-          let thumbFile = null;
           const thumbUrl = att.media?.image?.src;
           if (thumbUrl) {
-            thumbFile = `${post.id}.jpg`;
-            if (!fs.existsSync(path.join(THUMB_DIR, thumbFile))) {
-              const downloadedThumb = await downloadFile(thumbUrl, THUMB_DIR, thumbFile);
-              if (!downloadedThumb) thumbFile = null;
-            }
+            const thumbFile = `${post.id}.jpg`;
+            thumbnailFile = await downloadFile(thumbUrl, THUMB_DIR, thumbFile);
           }
 
-          // Generate GIF if missing
           const gifFile = `${post.id}.gif`;
           const gifPath = path.join(GIF_DIR, gifFile);
-          let generatedGIF = fs.existsSync(gifPath) ? gifPath : await generateGIF(videoPath, gifPath);
-
-          const fbVideoUrl = `https://www.facebook.com/${PAGE_ID}/videos/${post.id}`;
-          if (generatedGIF) html += `<p style="text-align:center;"><a href="${fbVideoUrl}" target="_blank"><img src="file://${gifPath}" style="max-width:100%; height:auto;" alt="Video preview"/></a></p>`;
-          else if (thumbFile) html += `<p style="text-align:center;"><a href="${fbVideoUrl}" target="_blank"><img src="file://${path.join(THUMB_DIR, thumbFile)}" style="max-width:100%; height:auto;" alt="Video thumbnail"/></a></p>`;
+          if (!fs.existsSync(gifPath)) await generateGIF(videoPath, gifPath);
         }
       }
 
-      html += `</div>`;
-      content.push({ title: postDate, data: html });
-      console.log(`Processed post: ${post.id}`);
-
-      // Add to processed posts
+      epubChapters.push(formatPostForEPUB(post, thumbnailFile, i));
+      previewLinks.push({ title: new Date(post.created_time).toDateString(), thumb: thumbnailFile });
       processedPosts.push(post.id);
       fs.writeFileSync(PROCESSED_FILE, JSON.stringify(processedPosts, null, 2));
+      console.log(`Processed post: ${post.id}`);
     }
+
+    // ---------------- Preview / Index Page ----------------
+    const previewHtml = previewLinks.map(link =>
+      `<p style="text-align:center;">
+        <a href="#${link.title.replace(/\s+/g, "_")}">
+          <img src="${link.thumb}" alt="${link.title}" style="max-width:200px;height:auto;border:1px solid #ccc;"/>
+          <br/>${link.title}
+        </a>
+      </p>`
+    ).join("\n");
+
+    epubChapters.unshift({
+      title: "Preview / Index",
+      data: `<h1>Preview / Index</h1>${previewHtml}`
+    });
 
     await generateCover();
 
@@ -212,14 +248,14 @@ async function fetchVideoPosts() {
       title: TITLE,
       author: AUTHOR,
       cover: COVER_PATH,
-      output: "Facebook_Video_Posts.epub",
-      content,
+      output: OUTPUT_EPUB,
+      content: epubChapters,
       appendChapterTitles: true
     };
 
     await new Epub(option).promise;
-    console.log("🎉 EPUB generated successfully with cover, GIF previews, TOC, and video links!");
+    console.log("🎉 EPUB generated successfully with TOC, preview page, cover, and video links!");
   } catch (err) {
-    console.error("Error:", err);
+    console.error("❌ Error:", err);
   }
 })();
